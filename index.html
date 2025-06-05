@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gato Multijugador - Comparte y Juega</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes draw {
+            from { stroke-dashoffset: 100; }
+            to { stroke-dashoffset: 0; }
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.8); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        @keyframes slideDown {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .cell-hover:hover {
+            background: rgba(99, 102, 241, 0.1);
+        }
+        
+        .winner-line {
+            position: absolute;
+            background: linear-gradient(90deg, #f59e0b, #ef4444);
+            transform-origin: center;
+            animation: fadeIn 0.5s ease-out;
+        }
+        
+        .x-mark, .o-mark {
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        .turn-indicator {
+            animation: pulse 2s infinite;
+        }
+        
+        .notification {
+            animation: slideDown 0.3s ease-out;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">
+                🎮 Gato Multijugador
+            </h1>
+            <p class="text-gray-600">Comparte la URL para jugar con un amigo</p>
+        </div>
+        
+        <!-- Indicador de turno -->
+        <div id="turnIndicator" class="text-center mb-6 p-4 bg-gray-100 rounded-lg turn-indicator">
+            <p class="text-lg font-semibold text-gray-700">
+                Turno de: <span id="currentPlayer" class="text-2xl">❌</span>
+            </p>
+        </div>
+        
+        <!-- Tablero de juego -->
+        <div class="relative">
+            <div id="gameBoard" class="grid grid-cols-3 gap-2 mb-6 relative">
+                <!-- Las celdas se generarán con JavaScript -->
+            </div>
+            <div id="winnerLine" class="hidden"></div>
+        </div>
+        
+        <!-- Botones de acción -->
+        <div class="flex gap-4 mb-6">
+            <button onclick="resetGame()" class="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold py-3 px-6 rounded-lg hover:from-purple-600 hover:to-pink-600 transition-all transform hover:scale-105">
+                🔄 Nueva Partida
+            </button>
+            <button onclick="shareGame()" class="flex-1 bg-gradient-to-r from-green-500 to-teal-500 text-white font-semibold py-3 px-6 rounded-lg hover:from-green-600 hover:to-teal-600 transition-all transform hover:scale-105">
+                📤 Compartir
+            </button>
+        </div>
+        
+        <!-- Marcador -->
+        <div class="grid grid-cols-3 gap-4 text-center">
+            <div class="bg-red-100 rounded-lg p-3">
+                <p class="text-2xl mb-1">❌</p>
+                <p class="font-bold text-red-600" id="scoreX">0</p>
+            </div>
+            <div class="bg-gray-100 rounded-lg p-3">
+                <p class="text-lg mb-1">🤝</p>
+                <p class="font-bold text-gray-600" id="scoreTie">0</p>
+            </div>
+            <div class="bg-blue-100 rounded-lg p-3">
+                <p class="text-2xl mb-1">⭕</p>
+                <p class="font-bold text-blue-600" id="scoreO">0</p>
+            </div>
+        </div>
+        
+        <!-- Notificaciones -->
+        <div id="notification" class="hidden fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg notification"></div>
+    </div>
+
+    <script>
+        // Estado del juego
+        let gameState = {
+            board: Array(9).fill(''),
+            currentPlayer: 'X',
+            gameActive: true,
+            scores: { X: 0, O: 0, tie: 0 }
+        };
+        
+        // Patrones ganadores
+        const winPatterns = [
+            [0, 1, 2], [3, 4, 5], [6, 7, 8], // Horizontales
+            [0, 3, 6], [1, 4, 7], [2, 5, 8], // Verticales
+            [0, 4, 8], [2, 4, 6] // Diagonales
+        ];
+        
+        // Inicializar el juego
+        function initGame() {
+            createBoard();
+            loadGameFromURL();
+            updateDisplay();
+            
+            // Actualizar el estado cada vez que cambie
+            window.addEventListener('hashchange', () => {
+                loadGameFromURL();
+                updateDisplay();
+            });
+        }
+        
+        // Crear el tablero
+        function createBoard() {
+            const board = document.getElementById('gameBoard');
+            board.innerHTML = '';
+            
+            for (let i = 0; i < 9; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'aspect-square bg-gray-50 border-2 border-gray-300 rounded-lg flex items-center justify-center text-5xl font-bold cursor-pointer transition-all cell-hover hover:border-purple-400';
+                cell.onclick = () => makeMove(i);
+                board.appendChild(cell);
+            }
+        }
+        
+        // Hacer una jugada
+        function makeMove(index) {
+            if (!gameState.gameActive || gameState.board[index] !== '') {
+                return;
+            }
+            
+            gameState.board[index] = gameState.currentPlayer;
+            
+            if (checkWinner()) {
+                gameState.gameActive = false;
+                gameState.scores[gameState.currentPlayer]++;
+                showWinner();
+            } else if (gameState.board.every(cell => cell !== '')) {
+                gameState.gameActive = false;
+                gameState.scores.tie++;
+                showTie();
+            } else {
+                gameState.currentPlayer = gameState.currentPlayer === 'X' ? 'O' : 'X';
+            }
+            
+            updateDisplay();
+            saveGameToURL();
+        }
+        
+        // Verificar ganador
+        function checkWinner() {
+            return winPatterns.some(pattern => {
+                const [a, b, c] = pattern;
+                return gameState.board[a] && 
+                       gameState.board[a] === gameState.board[b] && 
+                       gameState.board[a] === gameState.board[c];
+            });
+        }
+        
+        // Obtener patrón ganador
+        function getWinningPattern() {
+            for (const pattern of winPatterns) {
+                const [a, b, c] = pattern;
+                if (gameState.board[a] && 
+                    gameState.board[a] === gameState.board[b] && 
+                    gameState.board[a] === gameState.board[c]) {
+                    return pattern;
+                }
+            }
+            return null;
+        }
+        
+        // Mostrar ganador
+        function showWinner() {
+            const pattern = getWinningPattern();
+            if (pattern) {
+                drawWinningLine(pattern);
+            }
+            
+            const winner = gameState.currentPlayer === 'X' ? '❌' : '⭕';
+            document.getElementById('turnIndicator').innerHTML = `
+                <p class="text-2xl font-bold text-green-600">¡${winner} Gana!</p>
+            `;
+        }
+        
+        // Dibujar línea ganadora
+        function drawWinningLine(pattern) {
+            const cells = document.querySelectorAll('#gameBoard > div');
+            const board = document.getElementById('gameBoard');
+            const line = document.getElementById('winnerLine');
+            
+            // Obtener posiciones de las celdas
+            const startCell = cells[pattern[0]].getBoundingClientRect();
+            const endCell = cells[pattern[2]].getBoundingClientRect();
+            const boardRect = board.getBoundingClientRect();
+            
+            // Calcular posición y ángulo
+            const startX = startCell.left + startCell.width / 2 - boardRect.left;
+            const startY = startCell.top + startCell.height / 2 - boardRect.top;
+            const endX = endCell.left + endCell.width / 2 - boardRect.left;
+            const endY = endCell.top + endCell.height / 2 - boardRect.top;
+            
+            const length = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
+            const angle = Math.atan2(endY - startY, endX - startX) * 180 / Math.PI;
+            
+            // Aplicar estilos
+            line.style.width = `${length}px`;
+            line.style.height = '8px';
+            line.style.left = `${startX}px`;
+            line.style.top = `${startY - 4}px`;
+            line.style.transform = `rotate(${angle}deg)`;
+            line.classList.remove('hidden');
+            line.classList.add('winner-line');
+        }
+        
+        // Mostrar empate
+        function showTie() {
+            document.getElementById('turnIndicator').innerHTML = `
+                <p class="text-2xl font-bold text-yellow-600">¡Empate! 🤝</p>
+            `;
+        }
+        
+        // Actualizar la visualización
+        function updateDisplay() {
+            const cells = document.querySelectorAll('#gameBoard > div');
+            gameState.board.forEach((value, index) => {
+                if (value === 'X') {
+                    cells[index].innerHTML = '<span class="text-red-500 x-mark">❌</span>';
+                } else if (value === 'O') {
+                    cells[index].innerHTML = '<span class="text-blue-500 o-mark">⭕</span>';
+                } else {
+                    cells[index].innerHTML = '';
+                }
+            });
+            
+            // Actualizar turno
+            if (gameState.gameActive) {
+                const currentSymbol = gameState.currentPlayer === 'X' ? '❌' : '⭕';
+                document.getElementById('currentPlayer').textContent = currentSymbol;
+            }
+            
+            // Actualizar marcadores
+            document.getElementById('scoreX').textContent = gameState.scores.X;
+            document.getElementById('scoreO').textContent = gameState.scores.O;
+            document.getElementById('scoreTie').textContent = gameState.scores.tie;
+        }
+        
+        // Guardar juego en URL
+        function saveGameToURL() {
+            const state = {
+                b: gameState.board.join(''),
+                p: gameState.currentPlayer,
+                a: gameState.gameActive ? '1' : '0',
+                x: gameState.scores.X,
+                o: gameState.scores.O,
+                t: gameState.scores.tie
+            };
+            
+            const hash = btoa(JSON.stringify(state));
+            window.location.hash = hash;
+        }
+        
+        // Cargar juego desde URL
+        function loadGameFromURL() {
+            const hash = window.location.hash.substring(1);
+            if (hash) {
+                try {
+                    const state = JSON.parse(atob(hash));
+                    gameState.board = state.b.split('').map(c => c === '-' ? '' : c);
+                    gameState.currentPlayer = state.p;
+                    gameState.gameActive = state.a === '1';
+                    gameState.scores = {
+                        X: parseInt(state.x) || 0,
+                        O: parseInt(state.o) || 0,
+                        tie: parseInt(state.t) || 0
+                    };
+                    
+                    // Verificar si hay ganador
+                    if (!gameState.gameActive && checkWinner()) {
+                        showWinner();
+                    } else if (!gameState.gameActive && gameState.board.every(cell => cell !== '')) {
+                        showTie();
+                    }
+                } catch (e) {
+                    console.error('Error cargando el juego:', e);
+                }
+            }
+        }
+        
+        // Reiniciar juego
+        function resetGame() {
+            gameState.board = Array(9).fill('');
+            gameState.currentPlayer = 'X';
+            gameState.gameActive = true;
+            
+            document.getElementById('winnerLine').classList.add('hidden');
+            document.getElementById('turnIndicator').innerHTML = `
+                <p class="text-lg font-semibold text-gray-700">
+                    Turno de: <span id="currentPlayer" class="text-2xl">❌</span>
+                </p>
+            `;
+            
+            updateDisplay();
+            saveGameToURL();
+        }
+        
+        // Compartir juego
+        function shareGame() {
+            const url = window.location.href;
+            
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Juega Gato conmigo',
+                    text: '¡Te reto a una partida de Gato!',
+                    url: url
+                }).then(() => {
+                    showNotification('¡Link compartido!');
+                }).catch(err => {
+                    if (err.name !== 'AbortError') {
+                        copyToClipboard(url);
+                    }
+                });
+            } else {
+                copyToClipboard(url);
+            }
+        }
+        
+        // Copiar al portapapeles
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showNotification('¡Link copiado! Compártelo con tu amigo');
+            }).catch(() => {
+                showNotification('Error al copiar', 'error');
+            });
+        }
+        
+        // Mostrar notificación
+        function showNotification(message, type = 'success') {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg notification ${
+                type === 'error' ? 'bg-red-500' : 'bg-green-500'
+            } text-white`;
+            
+            setTimeout(() => {
+                notification.classList.add('hidden');
+            }, 3000);
+        }
+        
+        // Inicializar cuando cargue la página
+        initGame();
+    </script>
+</body>
+</html>
